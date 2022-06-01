@@ -80,7 +80,7 @@ namespace ColorRegionMaskCreator
             using (Bitmap bmpColorMask = File.Exists(colorMaskFile) ? new Bitmap(colorMaskFile) : null)
             {
                 BitmapData bmpDataJpg = bmpBackgroundJpg.LockBits(
-                    new Rectangle(0, 0, bmpBackground.Width, bmpBackground.Height),
+                    new Rectangle(0, 0, bmpBackgroundJpg.Width, bmpBackgroundJpg.Height),
                     ImageLockMode.ReadWrite, bmpBackgroundJpg.PixelFormat);
                 BitmapData bmpDataBackground = bmpBackground.LockBits(new Rectangle(0, 0, bmpBackground.Width, bmpBackground.Height),
                     ImageLockMode.ReadWrite, bmpBackground.PixelFormat);
@@ -236,25 +236,8 @@ namespace ColorRegionMaskCreator
                 var imageWidth = (int)(bmpBackground.Width * resizeFactor);
                 var imageHeight = (int)(bmpBackground.Height * resizeFactor);
 
-                SaveResizedBitmap(bmpBackground, filePathBaseImage);
-                SaveResizedBitmap(bmpColorMask, filePathMaskImage);
-
-                void SaveResizedBitmap(Bitmap bmp, string filePath)
-                {
-                    if (bmp == null) return;
-
-                    using (var bmpResized = new Bitmap(imageWidth, imageHeight, bmp.PixelFormat))
-                    using (var g = Graphics.FromImage(bmpResized))
-                    {
-                        g.CompositingMode = CompositingMode.SourceCopy;
-                        g.CompositingQuality = CompositingQuality.HighQuality;
-                        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                        g.SmoothingMode = SmoothingMode.HighQuality;
-                        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                        g.DrawImage(bmp, 0, 0, imageWidth, imageWidth);
-                        bmpResized.Save(filePath, ImageFormat.Png);
-                    }
-                }
+                SaveResizedBitmap(bmpBackground, filePathBaseImage, imageWidth, imageHeight);
+                SaveResizedBitmap(bmpColorMask, filePathMaskImage, imageWidth, imageHeight);
 
                 if (createRegionImages && bmpColorMask != null)
                 {
@@ -279,10 +262,28 @@ namespace ColorRegionMaskCreator
                         {
                             if (CreateColorRegionImages(colors, enabledColorRegions, filePathMaskImage, regionImage))
                                 SaveResizedBitmap(regionImage,
-                                    Path.Combine(OutputRegionsFolderPath, Path.GetFileNameWithoutExtension(baseImageFilePath) + "_PaintRegion_" + i + ".png"));
+                                    Path.Combine(OutputRegionsFolderPath, Path.GetFileNameWithoutExtension(baseImageFilePath) + "_PaintRegion_" + i + ".png"),
+                                    imageWidth, imageHeight);
                         }
                     }
                 }
+            }
+        }
+
+        private static void SaveResizedBitmap(Bitmap bmp, string filePath, int imageWidth, int imageHeight)
+        {
+            if (bmp == null) return;
+
+            using (var bmpResized = new Bitmap(imageWidth, imageHeight, bmp.PixelFormat))
+            using (var g = Graphics.FromImage(bmpResized))
+            {
+                g.CompositingMode = CompositingMode.SourceCopy;
+                g.CompositingQuality = CompositingQuality.HighQuality;
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.SmoothingMode = SmoothingMode.HighQuality;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                g.DrawImage(bmp, 0, 0, imageWidth, imageHeight);
+                bmpResized.Save(filePath, ImageFormat.Png);
             }
         }
 
