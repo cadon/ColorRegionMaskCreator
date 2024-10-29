@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -10,48 +11,95 @@ namespace ColorRegionMaskCreator
 {
     internal static class ImageMasks
     {
-        private const string InputFolder = "in";
-        private const string OutputFolder = "outMasks";
-        private const string OutputRegionsFolder = "outRegions";
-        private static string _baseDirectoryPath;
-        private static string _inputFolderPath;
+        private const string InputFolderDefault = "in";
+        private const string OutputFolderDefault = "outMasks";
+        private const string OutputRegionsFolderDefault = "outRegions";
         public static string OutputFolderPath;
         public static string OutputRegionsFolderPath;
         private static Config _config;
 
-        internal static void CreateImageMasks(bool createRegionImages)
+        /// <summary>
+        /// Creates the image masks.
+        /// </summary>
+        /// <param name="createRegionImages"></param>
+        /// <param name="args"></param>
+        /// <returns>True on success</returns>
+        internal static bool CreateImageMasks(bool createRegionImages, Dictionary<string, string> args)
         {
-            _baseDirectoryPath = Environment.CurrentDirectory;
-            _inputFolderPath = Path.Combine(_baseDirectoryPath, InputFolder);
-            OutputFolderPath = Path.Combine(_baseDirectoryPath, OutputFolder);
-            OutputRegionsFolderPath = Path.Combine(_baseDirectoryPath, OutputRegionsFolder);
+            string inputFolderName = args.TryGetValue("in", out var arg) ? arg : null;
+            string outputFolder = args.TryGetValue("out", out arg) ? arg : null;
+            string outputRegionsFolder = args.TryGetValue("outregions", out arg) ? arg : null;
+
+            var baseDirectoryPath = Environment.CurrentDirectory;
+            var inputFolderPath = inputFolderName != null
+                    ? (
+                    Path.IsPathRooted(inputFolderName)
+                        ? inputFolderName
+                        : Path.Combine(baseDirectoryPath, inputFolderName)
+                    )
+                : Path.Combine(baseDirectoryPath, InputFolderDefault);
+
+            OutputFolderPath = outputFolder != null
+                    ? (
+                    Path.IsPathRooted(outputFolder)
+                        ? outputFolder
+                        : Path.Combine(baseDirectoryPath, outputFolder)
+                    )
+                : Path.Combine(baseDirectoryPath, OutputFolderDefault);
+
+            OutputRegionsFolderPath = outputRegionsFolder != null
+                    ? (
+                    Path.IsPathRooted(outputRegionsFolder)
+                        ? outputRegionsFolder
+                        : Path.Combine(baseDirectoryPath, outputRegionsFolder)
+                    )
+                : Path.Combine(baseDirectoryPath, OutputRegionsFolderDefault);
 
             _config = new Config();
-            _config.Load();
+            _config.Load(args);
 
             // get source files
-            var files = Directory.GetFiles(_inputFolderPath);
+            if (!Directory.Exists(inputFolderPath))
+            {
+                Console.WriteLine($"Error input folder {inputFolderPath} not found.");
+                return false;
+            }
+
+            var inputFolder = new DirectoryInfo(inputFolderPath);
+            // list of files, if Item2, it's a mask file
+            var files = inputFolder.GetFiles().Where(f =>
+                f.Extension == ".jpg"
+                || f.Extension == ".jpeg"
+                || f.Extension == ".png"
+                ).Select(f => (f, Path.GetFileNameWithoutExtension(f.Name).EndsWith("_m")))
+                .GroupBy(f => f.Item2)
+                .ToArray();
 
             var imageFiles = new Dictionary<string, string>();
+            FileInfo[] possibleMaskFiles = null;
 
-            // set defaultImages
-            foreach (var f in files)
+            // set base images
+            foreach (var fg in files)
             {
-                if (f.EndsWith(".jpg") && !f.EndsWith("_m.jpg"))
-                    imageFiles.Add(Path.Combine(_inputFolderPath, f), null);
+                if (fg.Key)
+                    possibleMaskFiles = fg.Select(f => f.f).ToArray();
+                else
+                    imageFiles = fg.ToDictionary(f => f.f.FullName, f => default(string));
             }
 
-            // set maskFiles
-            foreach (var f in files)
-            {
-                if (f.EndsWith("_m.jpg"))
+            // set mask files, only consider mask files where there's a base file
+            if (possibleMaskFiles != null)
+                foreach (var f in possibleMaskFiles)
                 {
-                    var maskFilePath = Path.Combine(_inputFolderPath, f);
-                    var baseImageFilePath = maskFilePath.Replace("_m.jpg", ".jpg");
+                    var fileName = Path.GetFileNameWithoutExtension(f.Name);
+                    if (fileName.Length < 2) continue;
+                    var baseImageFileNameWithoutExtension = fileName.Substring(0, fileName.Length - 2);
+
+                    var baseImageFilePath = Path.Combine(inputFolderPath, baseImageFileNameWithoutExtension + f.Extension);
+
                     if (imageFiles.ContainsKey(baseImageFilePath))
-                        imageFiles[baseImageFilePath] = maskFilePath;
+                        imageFiles[baseImageFilePath] = f.FullName;
                 }
-            }
 
             InitializeLogisticFunction();
 
@@ -60,7 +108,7 @@ namespace ColorRegionMaskCreator
                 Directory.CreateDirectory(OutputRegionsFolderPath);
 
             int count = imageFiles.Count;
-            int i = 0;
+            var i = 0;
 
             foreach (var fp in imageFiles)
             {
@@ -68,6 +116,8 @@ namespace ColorRegionMaskCreator
                 int progress = ++i * 100 / count;
                 Console.WriteLine($"{progress} % ({i}/{count}): {Path.GetFileNameWithoutExtension(fp.Key)}");
             }
+
+            return true;
         }
 
         /// <summary>
@@ -244,7 +294,7 @@ namespace ColorRegionMaskCreator
                     const int colorRegionCount = 6;
 
                     var colors = new byte[colorRegionCount][];
-                    var highlightedColor = new byte[] { _config.ColorR, _config.ColorG, _config.ColorB };
+                    var highlightedColor = new[] { _config.HighlightColorR, _config.HighlightColorG, _config.HighlightColorB };
                     for (int i = 0; i < colorRegionCount; i++)
                     {
                         colors[i] = highlightedColor;

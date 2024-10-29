@@ -1,11 +1,15 @@
-﻿using System.IO;
+﻿using System.Collections.Generic;
+using System.IO;
 using System.Text.RegularExpressions;
 
 namespace ColorRegionMaskCreator
 {
     public class Config
     {
-        public bool Load()
+        /// <summary>
+        /// Load config file. Command line arguments will overrule the config file values.
+        /// </summary>
+        public bool Load(Dictionary<string, string> args)
         {
             const string filePath = "config.ini";
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
@@ -17,49 +21,54 @@ namespace ColorRegionMaskCreator
                 var t = l.TrimStart();
                 if (string.IsNullOrEmpty(t) || t.StartsWith(";")) continue;
 
-                ReadSetting(t);
+
+                var m = RegexSettingLine.Match(t);
+                if (!m.Success) continue;
+
+                ReadSetting(m.Groups[1].Value.ToLowerInvariant(), m.Groups[2].Value);
             }
+
+            // use command line options, these will overrule the config file values
+            foreach (var arg in args)
+                ReadSetting(arg.Key, arg.Value);
 
             return true;
         }
 
-        private void ReadSetting(string line)
+        private void ReadSetting(string parameterName, string value)
         {
-            var m = RegexSettingLine.Match(line);
-            if (!m.Success) return;
-
-            switch (m.Groups[1].Value.ToLowerInvariant())
+            switch (parameterName)
             {
                 case "maxwidth":
-                    if (int.TryParse(m.Groups[2].Value, out var i))
+                    if (int.TryParse(value, out var i))
                         MaxWidth = i;
                     break;
                 case "maxheight":
-                    if (int.TryParse(m.Groups[2].Value, out i))
+                    if (int.TryParse(value, out i))
                         MaxHeight = i;
                     break;
-                case "colorr":
-                    if (byte.TryParse(m.Groups[2].Value, out var b))
-                        ColorR = b;
+                case "highlightr":
+                    if (byte.TryParse(value, out var b))
+                        HighlightColorR = b;
                     break;
-                case "colorg":
-                    if (byte.TryParse(m.Groups[2].Value, out b))
-                        ColorG = b;
+                case "highlightg":
+                    if (byte.TryParse(value, out b))
+                        HighlightColorG = b;
                     break;
-                case "colorb":
-                    if (byte.TryParse(m.Groups[2].Value, out b))
-                        ColorB = b;
+                case "highlightb":
+                    if (byte.TryParse(value, out b))
+                        HighlightColorB = b;
                     break;
                 case "greenscreenmingreen":
-                    if (byte.TryParse(m.Groups[2].Value, out b))
+                    if (byte.TryParse(value, out b))
                         GreenScreenMinGreen = b;
                     break;
                 case "greenscreenfactorglargerthanrb":
-                    if (double.TryParse(m.Groups[2].Value, out var d))
+                    if (double.TryParse(value, out var d))
                         GreenScreenFactorGLargerThanRB = d;
                     break;
                 case "greenscreengreenlargerthanrb":
-                    if (byte.TryParse(m.Groups[2].Value, out b))
+                    if (byte.TryParse(value, out b))
                         GreenScreenGreenLargerThanRB = b;
                     break;
             }
@@ -67,9 +76,9 @@ namespace ColorRegionMaskCreator
 
         public int MaxWidth = 256;
         public int MaxHeight = 256;
-        public byte ColorR = 255;
-        public byte ColorG = 0;
-        public byte ColorB = 0;
+        public byte HighlightColorR = 255;
+        public byte HighlightColorG = 0;
+        public byte HighlightColorB = 0;
         public byte GreenScreenMinGreen = 50;
         public byte GreenScreenGreenLargerThanRB = 50;
         public double GreenScreenFactorGLargerThanRB = 2;
