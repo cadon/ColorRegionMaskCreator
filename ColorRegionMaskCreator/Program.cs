@@ -10,7 +10,7 @@ namespace ColorRegionMaskCreator
     {
         static void Main(string[] args)
         {
-            Console.WriteLine(args[0]);
+            //Console.WriteLine(args[0]);
             var dontCreateRegionHighlights = false;
             var argDict = new Dictionary<string, string>();
 
@@ -34,6 +34,10 @@ namespace ColorRegionMaskCreator
                     case "highlightb":
                     case "greenscreenmingreen":
                     case "greenscreenfactorglargerthanrb":
+                    case "greenscreenborderfactorglargerthanrb":
+                    case "enlargeoutputimage":
+                    case "cropbackground":
+                    case "expandbackgroundtosize":
                         if (ai + 2 > args.Length) break;
                         argDict[parameterName] = args[ai + 1];
                         break;
@@ -50,11 +54,13 @@ namespace ColorRegionMaskCreator
                 }
             }
 
-            Console.WriteLine("Creates base images and according mask images from jpg files in the in folder.");
+            Console.WriteLine();
+            Console.WriteLine("Creates base images and according mask images from jpg or png files in the in folder.");
             Console.WriteLine("The base image can have a green screen which will be made transparent in the output.");
             Console.WriteLine("The mask file is expected to have regions that are r, g, b, gb, rg, rb; the contrast will be maximized.");
             Console.WriteLine("The according mask file needs to have the same filename with _m appended to the name before the extension, e.g. in/myImage.jpg and in/myImage_m.jpg");
             Console.WriteLine();
+            Console.WriteLine("### Parameters");
             Console.WriteLine("The default input folder is \"/in\" and can be adjusted with the command line parameter \"-in [inputFolder]\".");
             Console.WriteLine("Parameter -out [outputFolder] (default \"/out\")");
             Console.WriteLine("Parameter -outRegions [outputRegionsFolder] (default \"/outRegions\")");
@@ -70,6 +76,10 @@ namespace ColorRegionMaskCreator
             Console.WriteLine(" GreenScreenMinGreen is the min value of the green channel that a pixel can be set as green screen (if also the GreenScreenFactorGLargerThanRB condition is fulfilled). Default 50.");
             Console.WriteLine("Parameter -GreenScreenFactorGLargerThanRB [factor]. GreenScreenFactorGLargerThanRB is the factor the green channel needs to be larger than the red and the blue channel that a pixel can be set as green screen (if also the GreenScreenMinGreen condition is fulfilled)");
             Console.WriteLine(" E.g. with a a value of 2 a pixel with the rgb color (50,100,50) is considered a green screen, but the color (51,100,0) is not. Default 2.0.");
+            Console.WriteLine("Parameter -GreenScreenBorderFactorGLargerThanRB [factor]. Factor the green channel needs to be larger than the red and the blue channel to remove green out of pixel and replace with transparency, used to reduce green border. Default 1.2.");
+            Console.WriteLine("Parameter -EnlargeOutputImage [true|false]. If the output is smaller than the desired output size, it can be enlarged, default false");
+            Console.WriteLine("Parameter -CropBackground [true|false]. The background can be cropped, default false");
+            Console.WriteLine("Parameter -ExpandBackgroundToSize [true|false]. The background can be expanded (uncropped) to make the output fit the maxWidth and maxHeight ratio");
             if (!dontCreateRegionHighlights)
             {
                 Console.WriteLine();
@@ -79,7 +89,7 @@ namespace ColorRegionMaskCreator
             }
             
             Console.WriteLine();
-
+            
             var autoStart = argDict.ContainsKey("autostart");
             if (!autoStart)
             {

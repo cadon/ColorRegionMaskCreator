@@ -57,7 +57,7 @@ namespace ColorRegionMaskCreator
 
             _config = new Config();
             _config.Load(args);
-
+            
             // get source files
             if (!Directory.Exists(inputFolderPath))
             {
@@ -140,6 +140,9 @@ namespace ColorRegionMaskCreator
                 // count of pixels by lightness. used for contrast improvement
                 var bgHistogram = new int[256];
 
+                // foreground extends to these coordinates (can be used for cropping)
+                var foregroundRect = new ForegroundRectangle();
+
                 unsafe
                 {
                     byte* scan0Jpg = (byte*)bmpDataJpg.Scan0.ToPointer();
@@ -156,7 +159,9 @@ namespace ColorRegionMaskCreator
                             byte* dBg = scan0Background + j * bmpDataBackground.Stride + i * 4;
                             byte* dCm = scan0ColorMask != null ? (scan0ColorMask + j * bmpDataColorMask.Stride + i * 3) : null;
 
-                            if (dJpg[1] >= _config.GreenScreenMinGreen && dJpg[2] * _config.GreenScreenFactorGLargerThanRB <= dJpg[1] && dJpg[0] * _config.GreenScreenFactorGLargerThanRB <= dJpg[1])
+                            if (dJpg[1] >= _config.GreenScreenMinGreen 
+                                && dJpg[2] * _config.GreenScreenFactorGLargerThanRB <= dJpg[1] 
+                                && dJpg[0] * _config.GreenScreenFactorGLargerThanRB <= dJpg[1])
                             {
                                 // is greenScreen, set color mask to black
                                 if (dCm != null)
@@ -170,8 +175,11 @@ namespace ColorRegionMaskCreator
                             {
                                 dBg[0] = dJpg[0];
                                 byte alpha = 255;
+                                // at the border of the foreground there might be half green pixels
                                 // remove green glow of green screen and set transparency
-                                if (dJpg[1] > dJpg[0] + 20 && dJpg[1] > dJpg[0] * 1.2 && dJpg[1] > dJpg[2] * 1.2)
+                                if (dJpg[1] > dJpg[0] + 20
+                                    && dJpg[1] > dJpg[0] * _config.GreenScreenBorderFactorGLargerThanRB
+                                    && dJpg[1] > dJpg[2] * _config.GreenScreenBorderFactorGLargerThanRB)
                                 {
                                     dBg[1] = dJpg[0];
                                     var notGreenMean = (dJpg[0] + dJpg[2]) / 2;
@@ -243,6 +251,9 @@ namespace ColorRegionMaskCreator
                             byte* dBg = scan0Background + j * bmpDataBackground.Stride + i * 4;
                             if (dBg[3] == 0) continue; // transparent
 
+                            // pixel is not transparent, i.e. contains foreground
+                            foregroundRect.Include(i, j);
+
                             // adjust lightness of pixel
                             var lightness = (dBg[0] + dBg[1] + dBg[2]) / 3;
                             if (lightness == 0 || lightness == 255) continue;
@@ -267,29 +278,33 @@ namespace ColorRegionMaskCreator
                 bmpBackground.UnlockBits(bmpDataBackground);
                 bmpColorMask?.UnlockBits(bmpDataColorMask);
 
-                var filePathBaseImage = Path.Combine(OutputFolderPath, Path.GetFileNameWithoutExtension(baseImageFilePath) + ".png");
-                var filePathMaskImage = Path.Combine(OutputFolderPath, Path.GetFileNameWithoutExtension(colorMaskFile) + ".png");
+                var (bmpBackgroundProcessed, bmpColorMaskProcessed) =
+                    CropImage(bmpBackground, bmpColorMask, foregroundRect);
 
                 var resizeFactor = 1d;
-                if (_config.MaxWidth > 0 && _config.MaxWidth < bmpBackground.Width)
+                if (_config.MaxWidth > 0
+                    && (_config.EnlargeOutputImage || _config.MaxWidth < bmpBackgroundProcessed.Width))
                 {
-                    resizeFactor = (double)_config.MaxWidth / bmpBackground.Width;
+                    resizeFactor = (double)_config.MaxWidth / bmpBackgroundProcessed.Width;
                 }
 
-                if (_config.MaxHeight > 0 && _config.MaxHeight < bmpBackground.Height)
+                if (_config.MaxHeight > 0
+                    && (_config.EnlargeOutputImage || _config.MaxHeight < bmpBackgroundProcessed.Height))
                 {
-                    var resizeFactorH = (double)_config.MaxHeight / bmpBackground.Height;
-                    if (resizeFactorH < resizeFactor)
+                    var resizeFactorH = (double)_config.MaxHeight / bmpBackgroundProcessed.Height;
+                    if (_config.EnlargeOutputImage || resizeFactorH < resizeFactor)
                         resizeFactor = resizeFactorH;
                 }
 
-                var imageWidth = (int)(bmpBackground.Width * resizeFactor);
-                var imageHeight = (int)(bmpBackground.Height * resizeFactor);
+                var imageWidth = (int)(bmpBackgroundProcessed.Width * resizeFactor);
+                var imageHeight = (int)(bmpBackgroundProcessed.Height * resizeFactor);
 
-                SaveResizedBitmap(bmpBackground, filePathBaseImage, imageWidth, imageHeight);
-                SaveResizedBitmap(bmpColorMask, filePathMaskImage, imageWidth, imageHeight);
+                var filePathBaseImage = Path.Combine(OutputFolderPath, Path.GetFileNameWithoutExtension(baseImageFilePath) + ".png");
+                var filePathMaskImage = Path.Combine(OutputFolderPath, Path.GetFileNameWithoutExtension(colorMaskFile) + ".png");
+                SaveResizedBitmap(bmpBackgroundProcessed, filePathBaseImage, imageWidth, imageHeight);
+                SaveResizedBitmap(bmpColorMaskProcessed, filePathMaskImage, imageWidth, imageHeight);
 
-                if (createRegionImages && bmpColorMask != null)
+                if (createRegionImages && bmpColorMaskProcessed != null)
                 {
                     const int colorRegionCount = 6;
 
@@ -317,14 +332,66 @@ namespace ColorRegionMaskCreator
                         }
                     }
                 }
+
+                // due to CropExpandImage make sure the bitmaps are disposed
+                bmpBackgroundProcessed?.Dispose();
+                bmpColorMaskProcessed?.Dispose();
             }
+        }
+
+        /// <summary>
+        /// Crop or expand image if needed
+        /// </summary>
+        private static (Bitmap bg, Bitmap mask) CropImage(Bitmap bmpBackground, Bitmap bmpColorMask, ForegroundRectangle rect)
+        {
+            Bitmap bmpCroppedBg = null;
+            Bitmap bmpCroppedMask = null;
+            if (_config.CropBackground &&
+                (rect.Width < bmpBackground.Width || rect.Height < bmpBackground.Height))
+            {
+                bmpCroppedBg = new Bitmap(rect.Width, rect.Height, bmpBackground.PixelFormat);
+                using (var g = Graphics.FromImage(bmpCroppedBg))
+                {
+                    g.DrawImage(bmpBackground, new Rectangle(0, 0, rect.Width, rect.Height), new Rectangle(rect.Left, rect.Top, rect.Width, rect.Height), GraphicsUnit.Pixel);
+                }
+
+                if (bmpColorMask != null)
+                {
+                    bmpCroppedMask = new Bitmap(rect.Width, rect.Height, bmpColorMask.PixelFormat);
+                    using (var g = Graphics.FromImage(bmpCroppedMask))
+                    {
+                        g.DrawImage(bmpColorMask, new Rectangle(0, 0, rect.Width, rect.Height),
+                            new Rectangle(rect.Left, rect.Top, rect.Width, rect.Height), GraphicsUnit.Pixel);
+                    }
+                }
+            }
+
+            return (bmpCroppedBg ?? bmpBackground, bmpCroppedMask ?? bmpColorMask);
         }
 
         private static void SaveResizedBitmap(Bitmap bmp, string filePath, int imageWidth, int imageHeight)
         {
             if (bmp == null) return;
 
-            using (var bmpResized = new Bitmap(imageWidth, imageHeight, bmp.PixelFormat))
+            var widthEnlargedBg = imageWidth;
+            var heightEnlargedBg = imageHeight;
+            var leftMargin = 0;
+            var topMargin = 0;
+            if (_config.ExpandBackgroundToSize)
+            {
+                if (imageWidth < _config.MaxWidth)
+                {
+                    widthEnlargedBg = _config.MaxWidth;
+                    leftMargin = (widthEnlargedBg - imageWidth) / 2;
+                }
+                if (imageHeight < _config.MaxHeight)
+                {
+                    heightEnlargedBg = _config.MaxHeight;
+                    topMargin = (heightEnlargedBg - imageHeight) / 2;
+                }
+            }
+
+            using (var bmpResized = new Bitmap(widthEnlargedBg, heightEnlargedBg, bmp.PixelFormat))
             using (var g = Graphics.FromImage(bmpResized))
             {
                 g.CompositingMode = CompositingMode.SourceCopy;
@@ -332,7 +399,7 @@ namespace ColorRegionMaskCreator
                 g.InterpolationMode = InterpolationMode.HighQualityBicubic;
                 g.SmoothingMode = SmoothingMode.HighQuality;
                 g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                g.DrawImage(bmp, 0, 0, imageWidth, imageHeight);
+                g.DrawImage(bmp, leftMargin, topMargin, imageWidth, imageHeight);
                 bmpResized.Save(filePath, ImageFormat.Png);
             }
         }
