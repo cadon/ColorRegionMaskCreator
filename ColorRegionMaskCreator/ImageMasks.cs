@@ -57,21 +57,24 @@ namespace ColorRegionMaskCreator
 
             _config = new Config();
             _config.Load(args);
-            
+
             // get source files
             if (!Directory.Exists(inputFolderPath))
             {
-                Console.WriteLine($"Error input folder {inputFolderPath} not found.");
+                Console.WriteLine($"Error: input folder {inputFolderPath} not found.");
                 return false;
             }
 
             var inputFolder = new DirectoryInfo(inputFolderPath);
             // list of files, if Item2, it's a mask file
-            var files = inputFolder.GetFiles().Where(f =>
-                f.Extension == ".jpg"
-                || f.Extension == ".jpeg"
-                || f.Extension == ".png"
-                ).Select(f => (f, Path.GetFileNameWithoutExtension(f.Name).EndsWith("_m")))
+            var files = inputFolder.GetFiles()
+                .Select(f => (f, Extension: f.Extension.ToLowerInvariant()))
+                .Where(f =>
+                    f.Extension == ".jpg"
+                    || f.Extension == ".jpeg"
+                    || f.Extension == ".png"
+                    )
+                .Select(f => (f.f, Path.GetFileNameWithoutExtension(f.f.Name).EndsWith("_m")))
                 .GroupBy(f => f.Item2)
                 .ToArray();
 
@@ -87,8 +90,17 @@ namespace ColorRegionMaskCreator
                     imageFiles = fg.ToDictionary(f => f.f.FullName, f => default(string));
             }
 
+            if (!imageFiles.Any())
+            {
+                Console.WriteLine("Error: no images found to process in folder");
+                Console.WriteLine(inputFolderPath);
+                Console.WriteLine("The input images need to be in the format jpg or png and need to have the file extension .jpg, .jpeg or .png");
+                return false;
+            }
+
             // set mask files, only consider mask files where there's a base file
             if (possibleMaskFiles != null)
+            {
                 foreach (var f in possibleMaskFiles)
                 {
                     var fileName = Path.GetFileNameWithoutExtension(f.Name);
@@ -100,6 +112,7 @@ namespace ColorRegionMaskCreator
                     if (imageFiles.ContainsKey(baseImageFilePath))
                         imageFiles[baseImageFilePath] = f.FullName;
                 }
+            }
 
             InitializeLogisticFunction();
 
@@ -107,7 +120,7 @@ namespace ColorRegionMaskCreator
             if (createRegionImages)
                 Directory.CreateDirectory(OutputRegionsFolderPath);
 
-            int count = imageFiles.Count;
+            var count = imageFiles.Count;
             var i = 0;
 
             foreach (var fp in imageFiles)
@@ -159,8 +172,8 @@ namespace ColorRegionMaskCreator
                             byte* dBg = scan0Background + j * bmpDataBackground.Stride + i * 4;
                             byte* dCm = scan0ColorMask != null ? (scan0ColorMask + j * bmpDataColorMask.Stride + i * 3) : null;
 
-                            if (dJpg[1] >= _config.GreenScreenMinGreen 
-                                && dJpg[2] * _config.GreenScreenFactorGLargerThanRB <= dJpg[1] 
+                            if (dJpg[1] >= _config.GreenScreenMinGreen
+                                && dJpg[2] * _config.GreenScreenFactorGLargerThanRB <= dJpg[1]
                                 && dJpg[0] * _config.GreenScreenFactorGLargerThanRB <= dJpg[1])
                             {
                                 // is greenScreen, set color mask to black
