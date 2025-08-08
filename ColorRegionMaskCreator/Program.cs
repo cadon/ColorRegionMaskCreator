@@ -1,8 +1,8 @@
 ﻿using System;
-using System.CodeDom;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 
 namespace ColorRegionMaskCreator
 {
@@ -54,7 +54,10 @@ namespace ColorRegionMaskCreator
                 }
             }
 
+            var fileVersionInfo = FileVersionInfo.GetVersionInfo(Assembly.GetExecutingAssembly().Location);
+
             Console.WriteLine();
+            Console.WriteLine($"Color region mask creator, version {fileVersionInfo.FileVersion}");
             Console.WriteLine("Creates base images and according mask images from jpg or png files in the in folder.");
             Console.WriteLine("The base image can have a green screen which will be made transparent in the output.");
             Console.WriteLine("The mask file is expected to have regions that are r, g, b, gb, rg, rb; the contrast will be maximized.");
@@ -87,9 +90,9 @@ namespace ColorRegionMaskCreator
                 var answer = Console.ReadLine();
                 dontCreateRegionHighlights = answer?.Trim().ToLowerInvariant() != "y";
             }
-            
+
             Console.WriteLine();
-            
+
             var autoStart = argDict.ContainsKey("autostart");
             if (!autoStart)
             {

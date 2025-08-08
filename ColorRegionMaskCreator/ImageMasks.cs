@@ -156,6 +156,9 @@ namespace ColorRegionMaskCreator
                 // foreground extends to these coordinates (can be used for cropping)
                 var foregroundRect = new ForegroundRectangle();
 
+                var channelsInputBg = bmpBackgroundJpg.PixelFormat == PixelFormat.Format32bppArgb ? 4 : 3;
+                var channelsInputMask = bmpColorMask?.PixelFormat == PixelFormat.Format32bppArgb ? 4 : 3;
+
                 unsafe
                 {
                     byte* scan0Jpg = (byte*)bmpDataJpg.Scan0.ToPointer();
@@ -168,9 +171,9 @@ namespace ColorRegionMaskCreator
                     {
                         for (int j = 0; j < height; j++)
                         {
-                            byte* dJpg = scan0Jpg + j * bmpDataJpg.Stride + i * 3;
+                            byte* dJpg = scan0Jpg + j * bmpDataJpg.Stride + i * channelsInputBg;
                             byte* dBg = scan0Background + j * bmpDataBackground.Stride + i * 4;
-                            byte* dCm = scan0ColorMask != null ? (scan0ColorMask + j * bmpDataColorMask.Stride + i * 3) : null;
+                            byte* dCm = scan0ColorMask != null ? (scan0ColorMask + j * bmpDataColorMask.Stride + i * channelsInputMask) : null;
 
                             if (dJpg[1] >= _config.GreenScreenMinGreen
                                 && dJpg[2] * _config.GreenScreenFactorGLargerThanRB <= dJpg[1]
