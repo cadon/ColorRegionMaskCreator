@@ -39,12 +39,15 @@ namespace ColorRegionMaskCreator
                     case "cropbackground":
                     case "expandbackgroundtosize":
                         if (ai + 2 > args.Length) break;
-                        argDict[parameterName] = args[ai + 1];
+                        argDict[parameterName] = args[++ai];
                         break;
                     case "noregions":
                         dontCreateRegionHighlights = true;
                         break;
                     case "autostart":
+                        argDict[parameterName] = "1";
+                        break;
+                    case "nohistogramcorrection":
                         argDict[parameterName] = "1";
                         break;
                     case "openoutfolder":
@@ -69,6 +72,7 @@ namespace ColorRegionMaskCreator
             Console.WriteLine("Parameter -outRegions [outputRegionsFolder] (default \"/outRegions\")");
             Console.WriteLine("Parameter -openOutFolder: possible values 1: will open the output folder after the images are processed. Other values will not open the output folder. Omitting this parameter will ask if the folder should be opened.");
             Console.WriteLine("Parameter -autostart with no values. If stated, the app will start processing directly.");
+            Console.WriteLine("Parameter -noHistogramCorrection with no values. If stated, the base image will not have its histogram corrected to improve its contrast. If the contrast is already optimized, turning this off might improve the output.");
             Console.WriteLine("Parameter -maxWidth [width in px]. Max width of the output images. Smaller images are not enlarged. Default 800");
             Console.WriteLine("Parameter -maxHeight [height in px]. Max height of the output images. Smaller images are not enlarged. Default 600");
             Console.WriteLine("Parameter -highlightR [red value]. Red channel of color for region highlighting. Default 240");

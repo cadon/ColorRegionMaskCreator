@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -26,9 +25,10 @@ namespace ColorRegionMaskCreator
         /// <returns>True on success</returns>
         internal static bool CreateImageMasks(bool createRegionImages, Dictionary<string, string> args)
         {
-            string inputFolderName = args.TryGetValue("in", out var arg) ? arg : null;
-            string outputFolder = args.TryGetValue("out", out arg) ? arg : null;
-            string outputRegionsFolder = args.TryGetValue("outregions", out arg) ? arg : null;
+            var inputFolderName = args.TryGetValue("in", out var arg) ? arg : null;
+            var outputFolder = args.TryGetValue("out", out arg) ? arg : null;
+            var outputRegionsFolder = args.TryGetValue("outregions", out arg) ? arg : null;
+            var doNotApplyHistogramCorrection = args.ContainsKey("nohistogramcorrection");
 
             var baseDirectoryPath = Environment.CurrentDirectory;
             var inputFolderPath = inputFolderName != null
@@ -125,7 +125,7 @@ namespace ColorRegionMaskCreator
 
             foreach (var fp in imageFiles)
             {
-                CreateFiles(fp.Key, fp.Value, createRegionImages);
+                CreateFiles(fp.Key, fp.Value, createRegionImages, !doNotApplyHistogramCorrection);
                 int progress = ++i * 100 / count;
                 Console.WriteLine($"{progress} % ({i}/{count}): {Path.GetFileNameWithoutExtension(fp.Key)}");
             }
@@ -136,7 +136,7 @@ namespace ColorRegionMaskCreator
         /// <summary>
         /// Loads file and creates mask assuming there is a greenScreen.
         /// </summary>
-        private static void CreateFiles(string baseImageFilePath, string colorMaskFile, bool createRegionImages)
+        private static void CreateFiles(string baseImageFilePath, string colorMaskFile, bool createRegionImages, bool applyHistogramCorrection)
         {
             using (Bitmap bmpBackgroundSource = new Bitmap(baseImageFilePath))
             using (Bitmap bmpBackground = new Bitmap(bmpBackgroundSource.Width, bmpBackgroundSource.Height, PixelFormat.Format32bppArgb))
@@ -177,8 +177,8 @@ namespace ColorRegionMaskCreator
                             byte* dCm = scan0ColorMask != null ? (scan0ColorMask + j * bmpDataColorMask.Stride + i * channelsInputMask) : null;
 
                             if (dJpg[1] >= _config.GreenScreenMinGreen
-                                && dJpg[2] * _config.GreenScreenFactorGLargerThanRB <= dJpg[1]
-                                && dJpg[0] * _config.GreenScreenFactorGLargerThanRB <= dJpg[1])
+                                               && dJpg[2] * _config.GreenScreenFactorGLargerThanRB <= dJpg[1]
+                                               && dJpg[0] * _config.GreenScreenFactorGLargerThanRB <= dJpg[1])
                             {
                                 // is greenScreen, set color mask to black
                                 if (dCm != null)
@@ -256,36 +256,56 @@ namespace ColorRegionMaskCreator
                         }
                     }
 
-                    // adjust contrast of the background image to improve the displayed colors
-                    var transformFunction = CreateTransformFunction(bgHistogram);
-
-                    width = bmpDataBackground.Width;
-                    height = bmpDataBackground.Height;
-                    for (int i = 0; i < width; i++)
+                    if (applyHistogramCorrection)
                     {
-                        for (int j = 0; j < height; j++)
+                        // adjust contrast of the background image to improve the displayed colors
+                        var transformFunction = CreateTransformFunction(bgHistogram);
+
+                        width = bmpDataBackground.Width;
+                        height = bmpDataBackground.Height;
+                        for (int i = 0; i < width; i++)
                         {
-                            byte* dBg = scan0Background + j * bmpDataBackground.Stride + i * 4;
-                            if (dBg[3] == 0) continue; // transparent
-
-                            // pixel is not transparent, i.e. contains foreground
-                            foregroundRect.Include(i, j);
-
-                            // adjust lightness of pixel
-                            var lightness = (dBg[0] + dBg[1] + dBg[2]) / 3;
-                            if (lightness == 0 || lightness == 255) continue;
-
-                            var lightnessFactor = (double)transformFunction[lightness] / lightness;
-                            dBg[0] = ApplyLightnessCorrection(dBg[0], lightnessFactor);
-                            dBg[1] = ApplyLightnessCorrection(dBg[1], lightnessFactor);
-                            dBg[2] = ApplyLightnessCorrection(dBg[2], lightnessFactor);
-
-                            byte ApplyLightnessCorrection(byte val, double factor)
+                            for (int j = 0; j < height; j++)
                             {
-                                var result = val * factor;
-                                if (result > 255) return 255;
-                                if (result < 0) return 0;
-                                return (byte)result;
+                                byte* dBg = scan0Background + j * bmpDataBackground.Stride + i * 4;
+                                if (dBg[3] == 0) continue; // transparent
+
+                                // pixel is not transparent, i.e. contains foreground
+                                foregroundRect.Include(i, j);
+
+                                // adjust lightness of pixel
+                                var lightness = (dBg[0] + dBg[1] + dBg[2]) / 3;
+                                if (lightness == 0 || lightness == 255) continue;
+
+                                var lightnessFactor = (double)transformFunction[lightness] / lightness;
+                                dBg[0] = ApplyLightnessCorrection(dBg[0], lightnessFactor);
+                                dBg[1] = ApplyLightnessCorrection(dBg[1], lightnessFactor);
+                                dBg[2] = ApplyLightnessCorrection(dBg[2], lightnessFactor);
+
+                                byte ApplyLightnessCorrection(byte val, double factor)
+                                {
+                                    var result = val * factor;
+                                    if (result > 255) return 255;
+                                    if (result < 0) return 0;
+                                    return (byte)result;
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // make sure foregroundRect contains all non-transparent image parts
+                        width = bmpDataBackground.Width;
+                        height = bmpDataBackground.Height;
+                        for (var i = 0; i < width; i++)
+                        {
+                            for (var j = 0; j < height; j++)
+                            {
+                                byte* dBg = scan0Background + j * bmpDataBackground.Stride + i * 4;
+                                if (dBg[3] == 0) continue; // transparent
+
+                                // pixel is not transparent, i.e. contains foreground
+                                foregroundRect.Include(i, j);
                             }
                         }
                     }
