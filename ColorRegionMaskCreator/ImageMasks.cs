@@ -138,13 +138,13 @@ namespace ColorRegionMaskCreator
         /// </summary>
         private static void CreateFiles(string baseImageFilePath, string colorMaskFile, bool createRegionImages)
         {
-            using (Bitmap bmpBackgroundJpg = new Bitmap(baseImageFilePath))
-            using (Bitmap bmpBackground = new Bitmap(bmpBackgroundJpg.Width, bmpBackgroundJpg.Height, PixelFormat.Format32bppArgb))
+            using (Bitmap bmpBackgroundSource = new Bitmap(baseImageFilePath))
+            using (Bitmap bmpBackground = new Bitmap(bmpBackgroundSource.Width, bmpBackgroundSource.Height, PixelFormat.Format32bppArgb))
             using (Bitmap bmpColorMask = File.Exists(colorMaskFile) ? new Bitmap(colorMaskFile) : null)
             {
-                BitmapData bmpDataJpg = bmpBackgroundJpg.LockBits(
-                    new Rectangle(0, 0, bmpBackgroundJpg.Width, bmpBackgroundJpg.Height),
-                    ImageLockMode.ReadWrite, bmpBackgroundJpg.PixelFormat);
+                BitmapData bmpDataJpg = bmpBackgroundSource.LockBits(
+                    new Rectangle(0, 0, bmpBackgroundSource.Width, bmpBackgroundSource.Height),
+                    ImageLockMode.ReadWrite, bmpBackgroundSource.PixelFormat);
                 BitmapData bmpDataBackground = bmpBackground.LockBits(new Rectangle(0, 0, bmpBackground.Width, bmpBackground.Height),
                     ImageLockMode.ReadWrite, bmpBackground.PixelFormat);
                 BitmapData bmpDataColorMask = bmpColorMask?.LockBits(new Rectangle(0, 0, bmpColorMask.Width, bmpColorMask.Height),
@@ -156,8 +156,9 @@ namespace ColorRegionMaskCreator
                 // foreground extends to these coordinates (can be used for cropping)
                 var foregroundRect = new ForegroundRectangle();
 
-                var channelsInputBg = bmpBackgroundJpg.PixelFormat == PixelFormat.Format32bppArgb ? 4 : 3;
+                var channelsInputBg = bmpBackgroundSource.PixelFormat == PixelFormat.Format32bppArgb ? 4 : 3;
                 var channelsInputMask = bmpColorMask?.PixelFormat == PixelFormat.Format32bppArgb ? 4 : 3;
+                var inputHasAlpha = channelsInputBg > 3;
 
                 unsafe
                 {
@@ -190,7 +191,7 @@ namespace ColorRegionMaskCreator
                             else
                             {
                                 dBg[0] = dJpg[0];
-                                byte alpha = 255;
+                                var alpha = (byte)(inputHasAlpha ? dJpg[3] : 255);
                                 // at the border of the foreground there might be half green pixels
                                 // remove green glow of green screen and set transparency
                                 if (dJpg[1] > dJpg[0] + 20
@@ -290,7 +291,7 @@ namespace ColorRegionMaskCreator
                     }
                 }
 
-                bmpBackgroundJpg.UnlockBits(bmpDataJpg);
+                bmpBackgroundSource.UnlockBits(bmpDataJpg);
                 bmpBackground.UnlockBits(bmpDataBackground);
                 bmpColorMask?.UnlockBits(bmpDataColorMask);
 
@@ -373,12 +374,21 @@ namespace ColorRegionMaskCreator
 
                 if (bmpColorMask != null)
                 {
-                    bmpCroppedMask = new Bitmap(rect.Width, rect.Height, bmpColorMask.PixelFormat);
+                    bmpCroppedMask = new Bitmap(rect.Width, rect.Height, PixelFormat.Format24bppRgb);
                     using (var g = Graphics.FromImage(bmpCroppedMask))
                     {
                         g.DrawImage(bmpColorMask, new Rectangle(0, 0, rect.Width, rect.Height),
                             new Rectangle(rect.Left, rect.Top, rect.Width, rect.Height), GraphicsUnit.Pixel);
                     }
+                }
+            }
+            else if (bmpColorMask?.PixelFormat == PixelFormat.Format32bppArgb)
+            {
+                // if the mask image input is 32 bit and does not need to be resized, still convert to 24 bit (alpha is not needed)
+                bmpCroppedMask = new Bitmap(rect.Width, rect.Height, PixelFormat.Format24bppRgb);
+                using (var g = Graphics.FromImage(bmpCroppedMask))
+                {
+                    g.DrawImage(bmpColorMask, 0, 0);
                 }
             }
 
