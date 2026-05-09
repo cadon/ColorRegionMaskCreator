@@ -209,15 +209,18 @@ namespace ColorRegionMaskCreator
                                 dBg[2] = dJpg[2];
                                 dBg[3] = alpha;
 
-                                bgHistogram[(dBg[0] + dBg[1] + dBg[2]) / 3]++; // assume lightness for the histogram adjustment is just the average of rgb
+                                if (alpha > 50)
+                                    bgHistogram[(dBg[0] + dBg[1] + dBg[2]) / 3]++; // assume lightness for the histogram adjustment is just the average of rgb
 
                                 if (dCm == null) continue;
 
                                 const int thresholdDifferentColor = 20;
                                 // color mask should only be set if there is no base color
-                                bool colorDifference = Math.Abs(dJpg[0] - dCm[0]) > thresholdDifferentColor
-                                                       || Math.Abs(dJpg[1] - dCm[1]) > thresholdDifferentColor
-                                                       || Math.Abs(dJpg[2] - dCm[2]) > thresholdDifferentColor;
+                                bool colorDifference = alpha > 20 && (
+                                    Math.Abs(dJpg[0] - dCm[0]) > thresholdDifferentColor
+                                    || Math.Abs(dJpg[1] - dCm[1]) > thresholdDifferentColor
+                                    || Math.Abs(dJpg[2] - dCm[2]) > thresholdDifferentColor
+                                    );
 
                                 //if (colorDifferenceB == 0 && colorDifferenceG == 0 && colorDifferenceR == 0)
                                 if (!colorDifference)
